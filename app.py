@@ -23,39 +23,67 @@ def salvar_dados(df, arquivo):
 def gerar_recibo_pdf(cliente, produto, qtde, preco, total, data):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Cabeçalho
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, txt="RECIBO DE VENDA", ln=True, align='C')
-    
-    # Linha separadora
     pdf.line(10, 25, 200, 25)
     pdf.ln(10)
-    
-    # Dados da Venda
     pdf.set_font("Arial", '', 12)
     pdf.cell(200, 10, txt=f"Data: {data}", ln=True)
     pdf.cell(200, 10, txt=f"Cliente: {cliente}", ln=True)
     pdf.ln(5)
-    
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(200, 10, txt="Detalhes do Pedido:", ln=True)
     pdf.set_font("Arial", '', 12)
     pdf.cell(200, 10, txt=f"Produto: {produto}", ln=True)
     pdf.cell(200, 10, txt=f"Quantidade: {qtde}x (R$ {preco:.2f}/un)", ln=True)
     pdf.ln(5)
-    
-    # Total
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(200, 10, txt=f"TOTAL GERAL: R$ {total:.2f}", ln=True)
-    
-    # Rodapé
+    pdf.cell(200, 10, txt=f"TOTAL: R$ {total:.2f}", ln=True)
     pdf.ln(15)
     pdf.set_font("Arial", 'I', 10)
     pdf.cell(200, 10, txt="Obrigado pela preferência!", ln=True, align='C')
     
-    # Salva o PDF em um arquivo temporário
     nome_arquivo = f"Recibo_{cliente.replace(' ', '_')}.pdf"
+    pdf.output(nome_arquivo)
+    return nome_arquivo
+
+def gerar_extrato_pdf(cliente, df_cliente, total):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Cabeçalho
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"EXTRATO DE CONTA - {cliente}", ln=True, align='C')
+    pdf.line(10, 25, 200, 25)
+    pdf.ln(10)
+    
+    # Tabela (Cabeçalho)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(45, 10, txt="Data", border=1)
+    pdf.cell(85, 10, txt="Produto", border=1)
+    pdf.cell(20, 10, txt="Qtd", border=1, align='C')
+    pdf.cell(40, 10, txt="Total (R$)", border=1, align='C')
+    pdf.ln()
+    
+    # Linhas da tabela
+    pdf.set_font("Arial", '', 10)
+    for index, row in df_cliente.iterrows():
+        # Pega apenas a data (sem a hora) para economizar espaço, ou deixa tudo
+        data_curta = str(row['Data']).split()[0]
+        produto_curto = str(row['Produto'])[:35] # Corta nomes muito grandes
+        
+        pdf.cell(45, 10, txt=data_curta, border=1)
+        pdf.cell(85, 10, txt=produto_curto, border=1)
+        pdf.cell(20, 10, txt=str(row['Quantidade']), border=1, align='C')
+        pdf.cell(40, 10, txt=f"{row['Total']:.2f}", border=1, align='C')
+        pdf.ln()
+        
+    # Total Final
+    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(190, 10, txt=f"TOTAL A PAGAR: R$ {total:.2f}", ln=True, align='R')
+    
+    nome_arquivo = f"Extrato_{cliente.replace(' ', '_')}.pdf"
     pdf.output(nome_arquivo)
     return nome_arquivo
 
@@ -67,7 +95,7 @@ df_vendas = carregar_dados(ARQUIVO_VENDAS, ["Data", "Cliente", "Produto", "Quant
 # --- INTERFACE DO APLICATIVO ---
 st.title("📦 Gerenciador de Negócio")
 
-menu = st.sidebar.radio("Navegação", ["📝 Registar Venda", "⚙️ Gerir Cadastros", "📊 Fecho do Mês"])
+menu = st.sidebar.radio("Navegação", ["📝 Registar Venda", "⚙️ Gerir Cadastros", "📊 Fechamento do Mês"])
 st.sidebar.markdown("---")
 st.sidebar.info("🌗 **Modo Dia / Noite:** Clique nos 3 pontinhos (⋮) no canto superior direito do ecrã, vá a **Settings**, e altere o **Theme**.")
 
@@ -109,20 +137,11 @@ if menu == "📝 Registar Venda":
             salvar_dados(df_vendas, ARQUIVO_VENDAS)
             st.success(f"Venda de R$ {total:.2f} registada!")
             
-            # Gera o recibo e cria o botão de download fora do formulário
             arquivo_pdf = gerar_recibo_pdf(cliente_selecionado, produto_selecionado, quantidade, preco, total, data_atual)
-            
             with open(arquivo_pdf, "rb") as pdf_file:
-                st.download_button(
-                    label="📄 Baixar Recibo em PDF",
-                    data=pdf_file,
-                    file_name=arquivo_pdf,
-                    mime="application/pdf",
-                    type="primary"
-                )
+                st.download_button("📄 Baixar Recibo em PDF", data=pdf_file, file_name=arquivo_pdf, mime="application/pdf", type="primary")
 
 elif menu == "⚙️ Gerir Cadastros":
-    # (O código desta aba mantém-se igual à versão anterior, omitido aqui para focar na novidade, mas copie a sua versão completa se preferir, ou posso reescrevê-la)
     st.header("Adicionar ou Excluir")
     tab1, tab2 = st.tabs(["👤 Clientes", "🛒 Produtos"])
     
@@ -137,12 +156,13 @@ elif menu == "⚙️ Gerir Cadastros":
                     st.rerun()
         
         st.divider()
-        cliente_excluir = st.selectbox("Excluir Cliente:", df_clientes["Nome"].tolist(), key="del_cli")
-        if st.button("🚨 Excluir Cliente"):
-            df_clientes = df_clientes[df_clientes["Nome"] != cliente_excluir]
-            salvar_dados(df_clientes, ARQUIVO_CLIENTES)
-            st.success("Removido!")
-            st.rerun()
+        if not df_clientes.empty:
+            cliente_excluir = st.selectbox("Excluir Cliente:", df_clientes["Nome"].tolist(), key="del_cli")
+            if st.button("🚨 Excluir Cliente"):
+                df_clientes = df_clientes[df_clientes["Nome"] != cliente_excluir]
+                salvar_dados(df_clientes, ARQUIVO_CLIENTES)
+                st.success("Removido!")
+                st.rerun()
 
     with tab2:
         with st.form("form_add_produto", clear_on_submit=True):
@@ -156,24 +176,50 @@ elif menu == "⚙️ Gerir Cadastros":
                     st.rerun()
         
         st.divider()
-        produto_excluir = st.selectbox("Excluir Produto:", df_produtos["Produto"].tolist(), key="del_prod")
-        if st.button("🚨 Excluir Produto"):
-            df_produtos = df_produtos[df_produtos["Produto"] != produto_excluir]
-            salvar_dados(df_produtos, ARQUIVO_PRODUTOS)
-            st.success("Removido!")
-            st.rerun()
+        if not df_produtos.empty:
+            produto_excluir = st.selectbox("Excluir Produto:", df_produtos["Produto"].tolist(), key="del_prod")
+            if st.button("🚨 Excluir Produto"):
+                df_produtos = df_produtos[df_produtos["Produto"] != produto_excluir]
+                salvar_dados(df_produtos, ARQUIVO_PRODUTOS)
+                st.success("Removido!")
+                st.rerun()
 
-elif menu == "📊 Fecho do Mês":
+elif menu == "📊 Fechamento do Mês":
     st.header("Contas a Receber")
+    
     if not df_vendas.empty:
         pendentes = df_vendas[df_vendas["Status"] == "Pendente (Fiado)"]
         if not pendentes.empty:
+            # Resumo Geral
             resumo = pendentes.groupby("Cliente")["Total"].sum().reset_index()
-            st.write("### Total a cobrar por cliente")
+            st.write("### Resumo de Valores a Cobrar")
             st.dataframe(resumo, use_container_width=True, hide_index=True)
-            st.write("### Histórico Completo")
-            st.dataframe(pendentes, use_container_width=True, hide_index=True)
+            
+            st.divider()
+            
+            # Gerador de Extrato Individual
+            st.write("### 🖨️ Gerar Extrato Individual")
+            cliente_extrato = st.selectbox("Selecione o Cliente para criar o extrato:", resumo["Cliente"].tolist())
+            
+            if cliente_extrato:
+                df_cliente = pendentes[pendentes["Cliente"] == cliente_extrato]
+                total_cliente = resumo[resumo["Cliente"] == cliente_extrato]["Total"].values[0]
+                
+                # Mostra uma prévia na tela
+                st.write(f"**Prévia das compras de {cliente_extrato}:**")
+                st.dataframe(df_cliente[["Data", "Produto", "Quantidade", "Total"]], use_container_width=True, hide_index=True)
+                
+                # Botão de Download do PDF
+                arquivo_extrato = gerar_extrato_pdf(cliente_extrato, df_cliente, total_cliente)
+                with open(arquivo_extrato, "rb") as pdf_file:
+                    st.download_button(
+                        label=f"📄 Baixar Extrato de {cliente_extrato} (PDF)",
+                        data=pdf_file,
+                        file_name=arquivo_extrato,
+                        mime="application/pdf",
+                        type="primary"
+                    )
         else:
-            st.info("Todos os clientes estão em dia!")
+            st.info("Nenhuma conta pendente. Todos os clientes estão em dia!")
     else:
         st.warning("Nenhuma venda registada.")
