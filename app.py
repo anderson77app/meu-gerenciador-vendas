@@ -50,14 +50,11 @@ def gerar_recibo_pdf(cliente, produto, qtde, preco, total, data):
 def gerar_extrato_pdf(cliente, df_cliente, total):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Cabeçalho
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(200, 10, txt=f"EXTRATO DE CONTA - {cliente}", ln=True, align='C')
     pdf.line(10, 25, 200, 25)
     pdf.ln(10)
     
-    # Tabela (Cabeçalho)
     pdf.set_font("Arial", 'B', 11)
     pdf.cell(45, 10, txt="Data", border=1)
     pdf.cell(85, 10, txt="Produto", border=1)
@@ -65,12 +62,10 @@ def gerar_extrato_pdf(cliente, df_cliente, total):
     pdf.cell(40, 10, txt="Total (R$)", border=1, align='C')
     pdf.ln()
     
-    # Linhas da tabela
     pdf.set_font("Arial", '', 10)
     for index, row in df_cliente.iterrows():
-        # Pega apenas a data (sem a hora) para economizar espaço, ou deixa tudo
         data_curta = str(row['Data']).split()[0]
-        produto_curto = str(row['Produto'])[:35] # Corta nomes muito grandes
+        produto_curto = str(row['Produto'])[:35]
         
         pdf.cell(45, 10, txt=data_curta, border=1)
         pdf.cell(85, 10, txt=produto_curto, border=1)
@@ -78,7 +73,6 @@ def gerar_extrato_pdf(cliente, df_cliente, total):
         pdf.cell(40, 10, txt=f"{row['Total']:.2f}", border=1, align='C')
         pdf.ln()
         
-    # Total Final
     pdf.ln(10)
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(190, 10, txt=f"TOTAL A PAGAR: R$ {total:.2f}", ln=True, align='R')
@@ -190,35 +184,63 @@ elif menu == "📊 Fechamento do Mês":
     if not df_vendas.empty:
         pendentes = df_vendas[df_vendas["Status"] == "Pendente (Fiado)"]
         if not pendentes.empty:
-            # Resumo Geral
             resumo = pendentes.groupby("Cliente")["Total"].sum().reset_index()
             st.write("### Resumo de Valores a Cobrar")
             st.dataframe(resumo, use_container_width=True, hide_index=True)
             
             st.divider()
             
-            # Gerador de Extrato Individual
-            st.write("### 🖨️ Gerar Extrato Individual")
-            cliente_extrato = st.selectbox("Selecione o Cliente para criar o extrato:", resumo["Cliente"].tolist())
-            
+            st.write("### 🖨️ Gerar Extrato Completo")
+            cliente_extrato = st.selectbox("Selecione o Cliente para o extrato:", resumo["Cliente"].tolist(), key="sel_extrato")
             if cliente_extrato:
                 df_cliente = pendentes[pendentes["Cliente"] == cliente_extrato]
                 total_cliente = resumo[resumo["Cliente"] == cliente_extrato]["Total"].values[0]
                 
-                # Mostra uma prévia na tela
-                st.write(f"**Prévia das compras de {cliente_extrato}:**")
-                st.dataframe(df_cliente[["Data", "Produto", "Quantidade", "Total"]], use_container_width=True, hide_index=True)
-                
-                # Botão de Download do PDF
                 arquivo_extrato = gerar_extrato_pdf(cliente_extrato, df_cliente, total_cliente)
                 with open(arquivo_extrato, "rb") as pdf_file:
                     st.download_button(
-                        label=f"📄 Baixar Extrato de {cliente_extrato} (PDF)",
+                        label=f"📄 Baixar Extrato (Mês) - {cliente_extrato}",
                         data=pdf_file,
                         file_name=arquivo_extrato,
                         mime="application/pdf",
                         type="primary"
                     )
+            
+            st.divider()
+            
+            st.write("### 🧾 Gerar Recibo de Venda Específica")
+            cliente_recibo = st.selectbox("Selecione o Cliente:", resumo["Cliente"].tolist(), key="sel_recibo")
+            if cliente_recibo:
+                vendas_cliente = pendentes[pendentes["Cliente"] == cliente_recibo]
+                
+                opcoes_vendas = []
+                for index, row in vendas_cliente.iterrows():
+                    opcoes_vendas.append(f"{row['Data']} | {row['Produto']} - R$ {row['Total']:.2f}")
+                
+                venda_selecionada = st.selectbox("Selecione a venda anterior:", opcoes_vendas)
+                
+                if venda_selecionada:
+                    # Encontra a venda exata na lista
+                    indice_real = opcoes_vendas.index(venda_selecionada)
+                    linha_venda = vendas_cliente.iloc[indice_real]
+                    
+                    arquivo_recibo = gerar_recibo_pdf(
+                        linha_venda['Cliente'], 
+                        linha_venda['Produto'], 
+                        linha_venda['Quantidade'], 
+                        linha_venda['Valor_Unitario'], 
+                        linha_venda['Total'], 
+                        linha_venda['Data']
+                    )
+                    
+                    with open(arquivo_recibo, "rb") as pdf_file:
+                        st.download_button(
+                            label="📄 Baixar Recibo Desta Venda",
+                            data=pdf_file,
+                            file_name=arquivo_recibo,
+                            mime="application/pdf",
+                            type="primary"
+                        )
         else:
             st.info("Nenhuma conta pendente. Todos os clientes estão em dia!")
     else:
